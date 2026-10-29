@@ -9,6 +9,7 @@
 #endif
 #include "rlgl.h"
 #include "external/cgltf.h"
+#include "system_tray.h"
 
 #include <algorithm>
 #include <array>
@@ -566,6 +567,12 @@ int main(int argc, char **argv)
         if (animations && player.clip(static_cast<Action>(i)) < 0)
             std::cerr << "No matching clip for action " << i << ": " << config.clips[i] << '\n';
     }
+    CroseTray *tray = smokeTest ? nullptr : crose_tray_create(GetWindowHandle());
+    if (!smokeTest && !tray) std::cerr << "System tray is unavailable; using the normal window.\n";
+    RenderTexture2D trayTexture{};
+    if (tray) trayTexture = LoadRenderTexture(128, 128);
+    bool petHidden = false;
+    float trayIconClock = 0.2f;
     Action action = Action::Idle;
     float stateTime = 0, worldTime = 0, wanderClock = 0;
     float walkRemaining = 0, direction = -1;
@@ -619,6 +626,18 @@ int main(int argc, char **argv)
         }
         const bool shouldClose = WindowShouldClose();
         if ((shouldClose || IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_Q)) && action != Action::Exit)
+        {
+            setAction(Action::Exit);
+            walkRemaining = 0;
+        }
+        const int trayRequests = crose_tray_take_requests(tray);
+        if (trayRequests & CROSE_TRAY_TOGGLE)
+        {
+            petHidden = !petHidden;
+            if (petHidden) SetWindowState(FLAG_WINDOW_HIDDEN);
+            else { ClearWindowState(FLAG_WINDOW_HIDDEN); SetWindowFocused(); }
+        }
+        if (trayRequests & CROSE_TRAY_EXIT)
         {
             setAction(Action::Exit);
             walkRemaining = 0;
@@ -742,6 +761,34 @@ int main(int argc, char **argv)
         camera.fovy = 35;
         camera.projection = CAMERA_PERSPECTIVE;
         const float fade = action == Action::Exit ? 1.0f - smooth(stateTime / std::max(0.5f, player.duration(Action::Exit))) : 1.0f;
+        trayIconClock += dt;
+        if (tray && trayTexture.id && trayIconClock >= 0.125f)
+        {
+            trayIconClock = 0;
+            Camera3D iconCamera = camera;
+            const float iconDistance = config.cameraDistance * 0.67f;
+            iconCamera.position = {0, iconCamera.target.y + std::sin(elevation) * iconDistance,
+                                   std::cos(elevation) * iconDistance};
+            BeginTextureMode(trayTexture);
+            ClearBackground(BLANK);
+            BeginMode3D(iconCamera);
+            if (IsModelValid(model))
+                DrawModelEx(model, {0, 0, 0}, {0, 1, 0}, 0,
+                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
+            else drawDemoPet(action, worldTime, stateTime, 0, fade);
+            EndMode3D();
+            EndTextureMode();
+            Image iconImage = LoadImageFromTexture(trayTexture.texture);
+            if (IsImageValid(iconImage))
+            {
+                ImageFlipVertical(&iconImage);
+                ImageResize(&iconImage, 64, 64);
+                ImageFormat(&iconImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                crose_tray_update_icon(tray, static_cast<const unsigned char *>(iconImage.data),
+                                       iconImage.width, iconImage.height);
+                UnloadImage(iconImage);
+            }
+        }
         BeginDrawing();
         ClearBackground(BLANK);
         BeginMode3D(camera);
@@ -756,18 +803,14 @@ int main(int argc, char **argv)
         else
             drawDemoPet(action, worldTime, stateTime, yaw, fade);
         EndMode3D();
-        if (CheckCollisionPointRec(GetMousePosition(), {0, 0, static_cast<float>(config.width), static_cast<float>(config.height)}) &&
-            action != Action::Exit)
-        {
-            DrawText("L: react/drag  R: react/rotate", 8, config.height - 30, 10, Fade(DARKGRAY, 0.75f));
-            DrawText("Wheel: zoom  Esc: quit", 8, config.height - 16, 10, Fade(DARKGRAY, 0.75f));
-        }
         EndDrawing();
     }
     if (animations)
         UnloadModelAnimations(animations, animationCount);
     if (IsModelValid(model))
         UnloadModel(model);
+    if (trayTexture.id) UnloadRenderTexture(trayTexture);
+    crose_tray_destroy(tray);
     CloseWindow();
     return 0;
 }
