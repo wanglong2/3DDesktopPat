@@ -17,6 +17,9 @@ CroseTray *crose_tray_create(void *nativeWindow);
 void crose_tray_update_icon(CroseTray *tray, const unsigned char *rgba, int width, int height);
 int crose_tray_take_requests(CroseTray *tray);
 void crose_tray_destroy(CroseTray *tray);
+// Returns 1 if the OS cursor is inside the native window, 0 if outside,
+// or -1 when this platform backend does not provide global cursor polling.
+int crose_cursor_in_window(void *nativeWindow, int *x, int *y);
 
 #ifdef __cplusplus
 }

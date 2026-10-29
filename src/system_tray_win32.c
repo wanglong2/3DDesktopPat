@@ -159,3 +159,15 @@ void crose_tray_destroy(CroseTray *tray) {
     activeTray = NULL;
     free(tray);
 }
+
+int crose_cursor_in_window(void *nativeWindow, int *x, int *y) {
+    if (!nativeWindow || !x || !y) return -1;
+    POINT cursor;
+    RECT client;
+    if (!GetCursorPos(&cursor) || !ScreenToClient((HWND)nativeWindow, &cursor) ||
+        !GetClientRect((HWND)nativeWindow, &client)) return -1;
+    *x = cursor.x;
+    *y = cursor.y;
+    return cursor.x >= client.left && cursor.y >= client.top &&
+           cursor.x < client.right && cursor.y < client.bottom;
+}

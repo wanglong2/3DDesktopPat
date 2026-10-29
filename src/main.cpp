@@ -571,6 +571,14 @@ int main(int argc, char **argv)
     if (!smokeTest && !tray) std::cerr << "System tray is unavailable; using the normal window.\n";
     RenderTexture2D trayTexture{};
     if (tray) trayTexture = LoadRenderTexture(128, 128);
+    void *nativeWindow = GetWindowHandle();
+    int cursorX = 0, cursorY = 0;
+    const bool perPixelHitTest = crose_cursor_in_window(nativeWindow, &cursorX, &cursorY) >= 0;
+    RenderTexture2D hitTexture{};
+    if (perPixelHitTest && !smokeTest) hitTexture = LoadRenderTexture(config.width, config.height);
+    std::vector<unsigned char> hitAlpha(static_cast<std::size_t>(config.width) * config.height, 0);
+    bool hitMaskReady = false, mousePassthrough = false;
+    float hitMaskClock = 0.2f;
     bool petHidden = false;
     float trayIconClock = 0.2f;
     Action action = Action::Idle;
@@ -644,6 +652,34 @@ int main(int argc, char **argv)
         }
         if (action == Action::Exit && stateTime >= std::max(0.5f, player.duration(Action::Exit)))
             break;
+
+        const int cursorInside = crose_cursor_in_window(nativeWindow, &cursorX, &cursorY);
+        if (hitTexture.id && hitMaskReady && cursorInside >= 0)
+        {
+            bool onPet = false;
+            if (cursorInside == 1 && !petHidden)
+            {
+                for (int dy = -2; dy <= 2 && !onPet; ++dy)
+                {
+                    const int y = cursorY + dy;
+                    if (y < 0 || y >= config.height) continue;
+                    for (int dx = -2; dx <= 2; ++dx)
+                    {
+                        const int x = cursorX + dx;
+                        if (x >= 0 && x < config.width &&
+                            hitAlpha[static_cast<std::size_t>(y) * config.width + x] > 24)
+                        { onPet = true; break; }
+                    }
+                }
+            }
+            const bool passThrough = !onPet && !leftDown && !rightDown;
+            if (passThrough != mousePassthrough)
+            {
+                if (passThrough) SetWindowState(FLAG_WINDOW_MOUSE_PASSTHROUGH);
+                else ClearWindowState(FLAG_WINDOW_MOUSE_PASSTHROUGH);
+                mousePassthrough = passThrough;
+            }
+        }
 
         Vector2 mouse = GetMousePosition();
         Vector2 window = GetWindowPosition();
@@ -761,6 +797,30 @@ int main(int argc, char **argv)
         camera.fovy = 35;
         camera.projection = CAMERA_PERSPECTIVE;
         const float fade = action == Action::Exit ? 1.0f - smooth(stateTime / std::max(0.5f, player.duration(Action::Exit))) : 1.0f;
+        hitMaskClock += dt;
+        if (hitTexture.id && hitMaskClock >= 0.08f)
+        {
+            hitMaskClock = 0;
+            BeginTextureMode(hitTexture);
+            ClearBackground(BLANK);
+            BeginMode3D(camera);
+            if (IsModelValid(model))
+                DrawModelEx(model, {0, 0, 0}, {0, 1, 0}, yaw,
+                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
+            else drawDemoPet(action, worldTime, stateTime, yaw, fade);
+            EndMode3D();
+            EndTextureMode();
+            Image hitImage = LoadImageFromTexture(hitTexture.texture);
+            if (IsImageValid(hitImage))
+            {
+                ImageFlipVertical(&hitImage);
+                ImageFormat(&hitImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                const auto *rgba = static_cast<const unsigned char *>(hitImage.data);
+                for (std::size_t i = 0; i < hitAlpha.size(); ++i) hitAlpha[i] = rgba[4*i + 3];
+                hitMaskReady = true;
+                UnloadImage(hitImage);
+            }
+        }
         trayIconClock += dt;
         if (tray && trayTexture.id && trayIconClock >= 0.125f)
         {
@@ -809,6 +869,7 @@ int main(int argc, char **argv)
         UnloadModelAnimations(animations, animationCount);
     if (IsModelValid(model))
         UnloadModel(model);
+    if (hitTexture.id) UnloadRenderTexture(hitTexture);
     if (trayTexture.id) UnloadRenderTexture(trayTexture);
     crose_tray_destroy(tray);
     CloseWindow();
