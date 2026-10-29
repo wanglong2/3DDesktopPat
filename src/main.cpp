@@ -8,8 +8,10 @@
 #pragma GCC diagnostic pop
 #endif
 #include "rlgl.h"
-#include "external/cgltf.h"
 #include "system_tray.h"
+#include "configurator.h"
+#include "model_render.h"
+#include "pet_config.h"
 
 #include <algorithm>
 #include <array>
@@ -20,14 +22,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <map>
-#include <optional>
 #include <random>
-#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -115,187 +113,11 @@ namespace
         }
     }
 
-    // Khada stores default submesh visibility in glTF material extras. raylib
-    // imports the geometry but does not interpret those site-specific fields.
-    int hideInvisibleGlbParts(Model &model, const std::string &path)
-    {
-        int fileSize = 0;
-        unsigned char *fileData = LoadFileData(path.c_str(), &fileSize);
-        if (!fileData)
-            return 0;
-        cgltf_options options{};
-        cgltf_data *gltf = nullptr;
-        const cgltf_result parsed = cgltf_parse(&options, fileData, static_cast<cgltf_size>(fileSize), &gltf);
-        UnloadFileData(fileData);
-        if (parsed != cgltf_result_success || !gltf)
-            return 0;
 
-        std::vector<bool> visible(static_cast<std::size_t>(model.materialCount), true);
-        static const std::regex hiddenPattern(R"("visible"\s*:\s*false)", std::regex::icase);
-        for (cgltf_size i = 0; i < gltf->materials_count && i + 1 < visible.size(); ++i)
-        {
-            const char *extras = gltf->materials[i].extras.data;
-            if (extras && std::regex_search(extras, hiddenPattern))
-                visible[i + 1] = false;
-        }
-        cgltf_free(gltf);
-
-        int kept = 0;
-        int hidden = 0;
-        const int originalCount = model.meshCount;
-        for (int read = 0; read < originalCount; ++read)
-        {
-            const int material = model.meshMaterial[read];
-            if (material >= 0 && material < static_cast<int>(visible.size()) && !visible[material])
-            {
-                UnloadMesh(model.meshes[read]);
-                ++hidden;
-            }
-            else
-            {
-                if (kept != read)
-                {
-                    model.meshes[kept] = model.meshes[read];
-                    model.meshMaterial[kept] = material;
-                }
-                ++kept;
-            }
-        }
-        model.meshCount = kept;
-        return hidden;
-    }
-
-    struct Config
-    {
-        fs::path model;
-        int width = 360, height = 400, x = -1, y = -1, fps = 60;
-        bool alwaysOnTop = true, autoWalk = true;
-        float modelHeight = 2.2f, cameraDistance = 6.2f, cameraElevation = 18.0f, cameraTargetY = -1.0f;
-        float animationFps = 60.0f, blendSeconds = 0.20f;
-        float walkSpeed = 24.0f, walkInterval = 5.0f, walkDuration = 1.6f;
-        std::array<std::string, 5> clips = {
-            "Idle|Idle1|idle", "Walk|Move|Run", "Joke|Laugh|Taunt",
-            "Dance|Cheer|Emote", "Death|Exit|Recall"};
-    };
-
-    enum class Action : int
-    {
-        Idle,
-        Move,
-        Left,
-        Right,
-        Exit
-    };
-    constexpr int slot(Action action) { return static_cast<int>(action); }
-
-    bool loadConfig(const fs::path &path, Config &config, std::string &error)
-    {
-        if (!fs::exists(path))
-        {
-            error = "Configuration file not found: " + path.string();
-            return false;
-        }
-        std::ifstream file(path);
-        if (!file)
-        {
-            error = "Cannot read configuration: " + path.string();
-            return false;
-        }
-        std::map<std::string, std::string> values;
-        std::string line;
-        while (std::getline(file, line))
-        {
-            const auto comment = line.find_first_of("#;");
-            // #12 is a valid animation index, so comments only start at line beginning.
-            if (comment != std::string::npos && trim(line.substr(0, comment)).empty())
-                continue;
-            const auto equals = line.find('=');
-            if (equals == std::string::npos)
-                continue;
-            values[lower(trim(line.substr(0, equals)))] = trim(line.substr(equals + 1));
-        }
-        auto get = [&](const char *key) -> std::optional<std::string>
-        {
-            const auto it = values.find(key);
-            if (it == values.end())
-                return std::nullopt;
-            return it->second;
-        };
-        auto number = [&](const char *key, auto &target) -> bool
-        {
-            auto value = get(key);
-            if (!value)
-                return true;
-            try
-            {
-                std::size_t used = 0;
-                if constexpr (std::is_integral_v<std::decay_t<decltype(target)>>)
-                {
-                    int parsed = std::stoi(*value, &used);
-                    if (used != value->size())
-                        throw std::invalid_argument("trailing characters");
-                    target = parsed;
-                }
-                else
-                {
-                    float parsed = std::stof(*value, &used);
-                    if (used != value->size() || !std::isfinite(parsed))
-                        throw std::invalid_argument("invalid float");
-                    target = parsed;
-                }
-                return true;
-            }
-            catch (const std::exception &)
-            {
-                error = std::string("Invalid value for ") + key + ": " + *value;
-                return false;
-            }
-        };
-        auto boolean = [&](const char *key, bool &target) -> bool
-        {
-            auto value = get(key);
-            if (!value)
-                return true;
-            const auto v = lower(*value);
-            if (v == "true" || v == "1" || v == "yes")
-                target = true;
-            else if (v == "false" || v == "0" || v == "no")
-                target = false;
-            else
-            {
-                error = std::string("Invalid value for ") + key + ": " + *value;
-                return false;
-            }
-            return true;
-        };
-        if (!number("window_width", config.width) || !number("window_height", config.height) ||
-            !number("window_x", config.x) || !number("window_y", config.y) || !number("fps", config.fps) ||
-            !number("model_height", config.modelHeight) || !number("camera_distance", config.cameraDistance) ||
-            !number("camera_elevation", config.cameraElevation) || !number("camera_target_y", config.cameraTargetY) ||
-            !number("animation_fps", config.animationFps) ||
-            !number("blend_seconds", config.blendSeconds) || !number("walk_speed", config.walkSpeed) ||
-            !number("walk_interval", config.walkInterval) || !number("walk_duration", config.walkDuration) ||
-            !boolean("always_on_top", config.alwaysOnTop) || !boolean("auto_walk", config.autoWalk))
-            return false;
-        if (auto value = get("model"); value && !value->empty())
-        {
-            config.model = fs::path(*value);
-            if (config.model.is_relative())
-                config.model = path.parent_path() / config.model;
-        }
-        constexpr std::array<const char *, 5> keys = {"idle", "move", "left_click", "right_click", "exit"};
-        for (int i = 0; i < 5; ++i)
-            if (auto value = get(keys[i]))
-                config.clips[i] = *value;
-        if (config.width < 160 || config.height < 160 || config.fps < 15 || config.fps > 240 ||
-            config.modelHeight <= 0 || config.cameraDistance <= 0 || config.cameraTargetY < -1 || config.animationFps <= 0 ||
-            config.blendSeconds < 0 || config.walkSpeed < 0 || config.walkInterval < 0 || config.walkDuration < 0)
-        {
-            error = "One or more configuration values are outside their valid range";
-            return false;
-        }
-        return true;
-    }
+    using crose::Action;
+    using crose::Config;
+    using crose::actionCount;
+    using crose::slot;
 
     int resolveClip(const std::string &alternatives, Model model, const ModelAnimation *animations, int count)
     {
@@ -339,18 +161,19 @@ namespace
         AnimationPlayer(Model &model, ModelAnimation *animations, int count, const Config &config)
             : model_(model), animations_(animations), count_(count), config_(config)
         {
-            for (int i = 0; i < 5; ++i)
-                clips_[i] = resolveClip(config.clips[i], model_, animations_, count_);
-            if (clips_[0] < 0 && count_ > 0)
+            for (int i = 0; i < actionCount; ++i)
+                clips_[i] = resolveClip(config.actions[i].animation, model_, animations_, count_);
+            if (clips_[slot(Action::Idle)] < 0 && count_ > 0)
             {
                 for (int i = 0; i < count_; ++i)
                     if (IsModelAnimationValid(model_, animations_[i]))
                     {
-                        clips_[0] = i;
+                        clips_[slot(Action::Idle)] = i;
                         break;
                     }
             }
-            current_ = clips_[0];
+            currentAction_ = clips_[slot(Action::Startup)] >= 0 ? Action::Startup : Action::Idle;
+            current_ = clips_[slot(currentAction_)];
             if (current_ >= 0)
                 UpdateModelAnimation(model_, animations_[current_], 0);
             snapshot_.boneCount = model_.skeleton.boneCount;
@@ -364,15 +187,20 @@ namespace
         float duration(Action action) const
         {
             const int index = clip(action);
-            return index >= 0 ? animations_[index].keyframeCount / config_.animationFps : 0.65f;
+            return index >= 0 ? animations_[index].keyframeCount /
+                                    (config_.animationFps * config_.actions[slot(action)].speed)
+                              : 0.65f;
         }
         bool finished() const { return current_ < 0 ? elapsed_ >= 0.65f : frame_ >= animations_[current_].keyframeCount - 1; }
 
         void play(Action action)
         {
             const int next = clip(action);
-            if (next == current_ && action != Action::Left && action != Action::Right && action != Action::Exit)
+            if (next == current_ && action != Action::LeftClick && action != Action::RightClick && action != Action::Exit)
+            {
+                currentAction_ = action;
                 return;
+            }
             if (next >= 0 && model_.currentPose && snapshot_.boneCount > 0)
             {
                 std::copy_n(model_.currentPose, snapshot_.boneCount, snapshotPose_.begin());
@@ -382,6 +210,7 @@ namespace
             else
                 blending_ = false;
             current_ = next;
+            currentAction_ = action;
             frame_ = 0;
             elapsed_ = 0;
         }
@@ -394,7 +223,7 @@ namespace
             const int count = animations_[current_].keyframeCount;
             if (count <= 0)
                 return;
-            frame_ += dt * config_.animationFps;
+            frame_ += dt * config_.animationFps * config_.actions[slot(currentAction_)].speed;
             if (loop)
                 frame_ = std::fmod(frame_, static_cast<float>(count));
             else
@@ -416,7 +245,8 @@ namespace
         ModelAnimation *animations_;
         int count_;
         const Config &config_;
-        std::array<int, 5> clips_{};
+        std::array<int, actionCount> clips_{};
+        Action currentAction_ = Action::Idle;
         int current_ = -1;
         float frame_ = 0, elapsed_ = 0, blendElapsed_ = 0;
         bool blending_ = false;
@@ -427,10 +257,10 @@ namespace
 
     void drawDemoPet(Action action, float time, float elapsed, float yaw, float fade)
     {
-        const float bounce = action == Action::Move ? std::abs(std::sin(time * 10)) * 0.15f : action == Action::Left ? std::sin(std::min(elapsed, 0.6f) * 14) * 0.18f
-                                                                                          : action == Action::Right  ? std::abs(std::sin(elapsed * 13)) * 0.3f
+        const float bounce = (action == Action::Move || action == Action::Drag) ? std::abs(std::sin(time * 10)) * 0.15f : action == Action::LeftClick ? std::sin(std::min(elapsed, 0.6f) * 14) * 0.18f
+                                                                                          : action == Action::RightClick  ? std::abs(std::sin(elapsed * 13)) * 0.3f
                                                                                                                      : std::sin(time * 2.5f) * 0.04f;
-        const float sway = action == Action::Right ? std::sin(elapsed * 14) * 18.0f : 0;
+        const float sway = action == Action::RightClick ? std::sin(elapsed * 14) * 18.0f : 0;
         const Color body = {128, 209, 226, static_cast<unsigned char>(255 * fade)};
         const Color belly = {237, 250, 248, static_cast<unsigned char>(255 * fade)};
         const Color dark = {34, 55, 74, static_cast<unsigned char>(255 * fade)};
@@ -456,9 +286,8 @@ namespace
 
 int main(int argc, char **argv)
 {
-    fs::path configPath = "pet.ini";
-    bool listAnimations = false, smokeTest = false, configExplicit = false;
-    // 从参数判断应该执行什么操作
+    fs::path configPath;
+    bool listAnimations = false, smokeTest = false, configExplicit = false, runDirectly = false;
     for (int i = 1; i < argc; ++i)
     {
         const std::string arg = argv[i];
@@ -471,9 +300,11 @@ int main(int argc, char **argv)
             listAnimations = true;
         else if (arg == "--smoke-test")
             smokeTest = true;
+        else if (arg == "--run")
+            runDirectly = true;
         else if (arg == "--help")
         {
-            std::cout << "crose_pet [--config path/to/pet.ini] [--list-animations] [--smoke-test]\n";
+            std::cout << "crose_pet [--config profile.json] [--run] [--list-animations] [--smoke-test]\n";
             return 0;
         }
         else
@@ -482,25 +313,47 @@ int main(int argc, char **argv)
             return 2;
         }
     }
-    if (!configExplicit && !fs::exists(configPath))
-    {
-        const fs::path besideExecutable = fs::absolute(argv[0]).parent_path() / "pet.ini";
-        if (fs::exists(besideExecutable))
-            configPath = besideExecutable;
-    }
     Config config;
     std::string error;
-    if (!loadConfig(fs::absolute(configPath), config, error))
+    if (!configExplicit)
+    {
+        const fs::path executableDirectory = fs::absolute(argv[0]).parent_path();
+        const std::array<fs::path, 8> candidates = {
+            "pet-profile.json", "pet.json", fs::path("config") / "pet.json", "pet.ini", fs::path("config") / "pet.ini",
+            executableDirectory / "pet-profile.json", executableDirectory / "pet.json", executableDirectory / "pet.ini"};
+        for (const auto &candidate : candidates)
+            if (fs::exists(candidate))
+            {
+                configPath = candidate;
+                break;
+            }
+    }
+    if (!configPath.empty() && !crose::loadConfig(fs::absolute(configPath), config, error))
     {
         std::cerr << error << '\n';
         return 2;
     }
+    if (configPath.empty())
+    {
+        const fs::path bundledModel = fs::current_path() / fs::u8path("团子.glb");
+        if (fs::exists(bundledModel))
+            config.model = bundledModel;
+    }
+
+    SetLoadFileDataCallback(loadUtf8FileData);
+    SetLoadFileTextCallback(loadUtf8FileText);
+    if (!listAnimations && !smokeTest && !runDirectly && !crose::runConfigurator(config))
+        return 0;
     if (!config.model.empty() && !fs::exists(config.model))
     {
         std::cerr << "Model file not found: " << config.model << '\n';
         return 2;
     }
-    unsigned int flags = FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TRANSPARENT | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT;
+    unsigned int flags = FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TRANSPARENT | FLAG_VSYNC_HINT;
+#if !defined(__linux__)
+    // On X11, an MSAA framebuffer may select a 24-bit visual without alpha.
+    flags |= FLAG_MSAA_4X_HINT;
+#endif
     if (config.alwaysOnTop)
         flags |= FLAG_WINDOW_TOPMOST;
     if (listAnimations || smokeTest)
@@ -509,8 +362,6 @@ int main(int argc, char **argv)
         SetTraceLogLevel(LOG_WARNING);
     SetConfigFlags(flags);
     InitWindow(config.width, config.height, "Crose 3D Pet");
-    SetLoadFileDataCallback(loadUtf8FileData);
-    SetLoadFileTextCallback(loadUtf8FileText);
     SetExitKey(KEY_NULL);
     SetTargetFPS(config.fps);
     if (!listAnimations)
@@ -526,6 +377,7 @@ int main(int argc, char **argv)
     ModelAnimation *animations = nullptr;
     int animationCount = 0;
     float modelScale = 1.0f;
+    std::vector<crose::ModelComponent> components;
     if (!config.model.empty())
     {
         const auto path = config.model.u8string();
@@ -536,9 +388,7 @@ int main(int argc, char **argv)
             CloseWindow();
             return 3;
         }
-        const int hiddenParts = hideInvisibleGlbParts(model, path);
-        if (hiddenParts > 0)
-            std::cerr << "Hidden " << hiddenParts << " model parts marked invisible in glTF materials.\n";
+        components = crose::inspectModelComponents(path, model.materialCount);
         const BoundingBox bounds = GetModelBoundingBox(model);
         const float modelHeight = std::max(0.001f, bounds.max.y - bounds.min.y);
         modelScale = config.modelHeight / modelHeight;
@@ -562,10 +412,11 @@ int main(int argc, char **argv)
     }
 
     AnimationPlayer player(model, animations, animationCount, config);
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < actionCount; ++i)
     {
         if (animations && player.clip(static_cast<Action>(i)) < 0)
-            std::cerr << "No matching clip for action " << i << ": " << config.clips[i] << '\n';
+            std::cerr << "No matching clip for action " << crose::actionKey(static_cast<Action>(i))
+                      << ": " << config.actions[i].animation << '\n';
     }
     CroseTray *tray = smokeTest ? nullptr : crose_tray_create(GetWindowHandle());
     if (!smokeTest && !tray) std::cerr << "System tray is unavailable; using the normal window.\n";
@@ -581,7 +432,7 @@ int main(int argc, char **argv)
     float hitMaskClock = 0.2f;
     bool petHidden = false;
     float trayIconClock = 0.2f;
-    Action action = Action::Idle;
+    Action action = player.clip(Action::Startup) >= 0 ? Action::Startup : Action::Idle;
     float stateTime = 0, worldTime = 0, wanderClock = 0;
     float walkRemaining = 0, direction = -1;
     float windowX = GetWindowPosition().x;
@@ -595,7 +446,7 @@ int main(int argc, char **argv)
     std::uniform_int_distribution<int> coin(0, 1);
     auto setAction = [&](Action next)
     {
-        if (action == Action::Exit || (action == next && next != Action::Left && next != Action::Right))
+        if (action == Action::Exit || (action == next && next != Action::LeftClick && next != Action::RightClick))
             return;
         action = next;
         stateTime = 0;
@@ -616,12 +467,12 @@ int main(int argc, char **argv)
             }
             else if (smokeStage == 1 && worldTime >= 0.8f)
             {
-                setAction(Action::Left);
+                setAction(Action::LeftClick);
                 smokeStage++;
             }
             else if (smokeStage == 2 && worldTime >= 1.2f)
             {
-                setAction(Action::Right);
+                setAction(Action::RightClick);
                 smokeStage++;
             }
             else if (smokeStage == 3 && worldTime >= 1.6f)
@@ -704,8 +555,12 @@ int main(int argc, char **argv)
             if (leftDown && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
             {
                 const Vector2 delta = Vector2Subtract(globalMouse, leftOrigin);
-                if (Vector2Length(delta) > 6)
+                if (!leftDragging && Vector2Length(delta) > 6)
+                {
                     leftDragging = true;
+                    setAction(Action::Drag);
+                    walkRemaining = 0;
+                }
                 if (leftDragging)
                 {
                     windowX = windowOrigin.x + delta.x;
@@ -716,9 +571,11 @@ int main(int argc, char **argv)
             {
                 if (!leftDragging)
                 {
-                    setAction(Action::Left);
+                    setAction(Action::LeftClick);
                     walkRemaining = 0;
                 }
+                else
+                    setAction(Action::Idle);
                 leftDown = false;
             }
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
@@ -745,7 +602,7 @@ int main(int argc, char **argv)
             {
                 if (!rightDragging)
                 {
-                    setAction(Action::Right);
+                    setAction(Action::RightClick);
                     walkRemaining = 0;
                 }
                 rightDown = false;
@@ -781,10 +638,12 @@ int main(int argc, char **argv)
             if (walkRemaining <= 0)
                 setAction(Action::Idle);
         }
-        if ((action == Action::Left || action == Action::Right) &&
+        if (action == Action::Startup && (player.clip(action) < 0 || player.finished()))
+            setAction(Action::Idle);
+        if ((action == Action::LeftClick || action == Action::RightClick) &&
             (player.clip(action) < 0 ? stateTime >= 0.65f : player.finished()))
             setAction(Action::Idle);
-        player.update(dt, action == Action::Idle || action == Action::Move);
+        player.update(dt, config.actions[slot(action)].loop);
 
         cameraDistance += (targetCameraDistance - cameraDistance) * (1.0f - std::exp(-12.0f * dt));
 
@@ -805,8 +664,9 @@ int main(int argc, char **argv)
             ClearBackground(BLANK);
             BeginMode3D(camera);
             if (IsModelValid(model))
-                DrawModelEx(model, {0, 0, 0}, {0, 1, 0}, yaw,
-                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
+                crose::drawConfiguredModel(model, components, config.actions[slot(action)],
+                                           {0, 0, 0}, {0, 1, 0}, yaw,
+                                           {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
             else drawDemoPet(action, worldTime, stateTime, yaw, fade);
             EndMode3D();
             EndTextureMode();
@@ -833,8 +693,9 @@ int main(int argc, char **argv)
             ClearBackground(BLANK);
             BeginMode3D(iconCamera);
             if (IsModelValid(model))
-                DrawModelEx(model, {0, 0, 0}, {0, 1, 0}, 0,
-                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
+                crose::drawConfiguredModel(model, components, config.actions[slot(action)],
+                                           {0, 0, 0}, {0, 1, 0}, 0,
+                                           {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
             else drawDemoPet(action, worldTime, stateTime, 0, fade);
             EndMode3D();
             EndTextureMode();
@@ -854,11 +715,12 @@ int main(int argc, char **argv)
         BeginMode3D(camera);
         if (IsModelValid(model))
         {
-            const float reaction = player.clip(action) < 0 && (action == Action::Left || action == Action::Right)
+            const float reaction = player.clip(action) < 0 && (action == Action::LeftClick || action == Action::RightClick)
                                        ? std::sin(stateTime * 18) * 0.08f * (1.0f - smooth(stateTime / 0.65f))
                                        : 0;
-            DrawModelEx(model, {0, reaction, 0}, {0, 1, 0}, yaw,
-                        {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
+            crose::drawConfiguredModel(model, components, config.actions[slot(action)],
+                                       {0, reaction, 0}, {0, 1, 0}, yaw,
+                                       {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
         }
         else
             drawDemoPet(action, worldTime, stateTime, yaw, fade);

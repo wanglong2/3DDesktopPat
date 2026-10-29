@@ -4,20 +4,28 @@
 
 ## 构建与启动
 
-需要 CMake 3.20+、C++17 编译器，以及首次配置时用于下载 raylib 的网络连接。Linux 还需要 raylib 所需的 X11/OpenGL 开发包。
+需要 CMake 3.22+、C++17 编译器，以及首次配置时用于下载依赖的网络连接。Linux 还需要 raylib 所需的 X11/OpenGL 开发包，并建议安装 `zenity` 以使用原生文件选择框。
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
 ```
 
-构建时会将 `config/pet.ini` 复制到 `build/pet.ini`。从构建目录启动，或显式指定配置：
+构建时会将 `config/pet.json` 和旧版 `config/pet.ini` 复制到构建目录。直接启动会先打开配置器：
 
 ```sh
-./build/crose_pet --config ./build/pet.ini
+./build/crose_pet
 ```
 
-Windows 下可双击 `build/crose_pet.exe`。MinGW 构建的程序不会额外打开控制台窗口。修改 `config/pet.ini` 后重新配置 CMake，或直接修改 `build/pet.ini`。
+配置器可以选择 `.glb`/`.gltf` 模型并即时预览，分别设置启动、静息、拖动、自动移动、左右键和退出动画。每个动作还可单独设置播放速度、是否循环，以及要显示的材质组件。窗口尺寸、镜头、动画混合与自动移动参数位于第二个页面。使用 **Open JSON** 导入配置，使用 **Save/Save As** 保存可移植的 JSON；模型路径会相对于 JSON 文件保存。
+
+跳过配置器直接运行已有配置：
+
+```sh
+./build/crose_pet --config ./build/pet.json --run
+```
+
+Windows 下可双击 `build/crose_pet.exe`。MinGW 构建的程序不会额外打开控制台窗口。旧版 INI 仍可导入，建议在配置器中另存为 JSON。
 
 Windows 版启动后会在通知区域显示团子的动态图标，桌宠窗口不会出现在任务栏或 Alt+Tab 中。托盘图标取自当前动画姿态；左键点击托盘图标可显示或隐藏桌宠，右键菜单可隐藏/显示或退出。图标若未直接出现在任务栏通知区域，请在 `^` 的隐藏图标面板中查找。其他平台目前保留普通窗口运行方式。
 

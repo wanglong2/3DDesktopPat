@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "name": "Dango",
+  "model": "../团子.glb",
+  "window": {
+    "width": 360,
+    "height": 400,
+    "x": -1,
+    "y": -1,
+    "fps": 60,
+    "always_on_top": true
+  },
+  "display": {
+    "model_height": 1.9,
+    "camera_distance": 7.0,
+    "camera_elevation": 18.0,
+    "camera_target_y": 0.45
+  },
+  "animation": {
+    "fps": 60.0,
+    "blend_seconds": 0.2
+  },
+  "behavior": {
+    "auto_walk": true,
+    "walk_speed": 24.0,
+    "walk_interval": 5.0,
+    "walk_duration": 1.6
+  },
+  "actions": {
+    "startup": {
+      "animation": "Greeting",
+      "loop": false,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    },
+    "idle": {
+      "animation": "Idle_Base|Idle_Var2",
+      "loop": true,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    },
+    "drag": {
+      "animation": "Into_Run|Run_Base",
+      "loop": true,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    },
+    "move": {
+      "animation": "Run_Base|Run_Haste",
+      "loop": true,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    },
+    "left_click": {
+      "animation": "Interact|Joke",
+      "loop": false,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    },
+    "right_click": {
+      "animation": "Celebrate|Dance_In",
+      "loop": false,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    },
+    "exit": {
+      "animation": "Death|Recall",
+      "loop": false,
+      "speed": 1.0,
+      "use_model_components": true,
+      "visible_components": []
+    }
+  }
+}
