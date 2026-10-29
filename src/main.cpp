@@ -155,6 +155,18 @@ namespace
         return t * t * (3.0f - 2.0f * t);
     }
 
+    // 把水平朝向与俯仰合成为单一旋转轴与角度，供 drawConfiguredModel 使用。
+    Vector3 facingAxis(float yawDegrees, float pitchDegrees, float &angleDegrees)
+    {
+        const Quaternion turn = QuaternionMultiply(QuaternionFromAxisAngle({0, 1, 0}, yawDegrees * DEG2RAD),
+                                                   QuaternionFromAxisAngle({1, 0, 0}, pitchDegrees * DEG2RAD));
+        Vector3 axis = {0, 1, 0};
+        float angle = 0;
+        QuaternionToAxisAngle(turn, &axis, &angle);
+        angleDegrees = angle * RAD2DEG;
+        return axis;
+    }
+
     class AnimationPlayer
     {
     public:
@@ -255,7 +267,7 @@ namespace
         ModelAnimation snapshot_{};
     };
 
-    void drawDemoPet(Action action, float time, float elapsed, float yaw, float fade)
+    void drawDemoPet(Action action, float time, float elapsed, float yaw, float tilt, float fade)
     {
         const float bounce = (action == Action::Move || action == Action::Drag) ? std::abs(std::sin(time * 10)) * 0.15f : action == Action::LeftClick ? std::sin(std::min(elapsed, 0.6f) * 14) * 0.18f
                                                                                           : action == Action::RightClick  ? std::abs(std::sin(elapsed * 13)) * 0.3f
@@ -267,6 +279,7 @@ namespace
         const Color pink = {255, 172, 190, static_cast<unsigned char>(255 * fade)};
         rlPushMatrix();
         rlRotatef(yaw + sway, 0, 1, 0);
+        rlRotatef(tilt, 1, 0, 0);
         rlTranslatef(0, bounce, 0);
         DrawSphereEx({0, 1.12f, 0}, 0.78f, 20, 28, body);
         DrawSphereEx({0, 0.68f, 0.52f}, 0.44f, 16, 20, belly);
@@ -437,6 +450,9 @@ int main(int argc, char **argv)
     float walkRemaining = 0, direction = -1;
     float windowX = GetWindowPosition().x;
     float yaw = 0, pitch = config.cameraElevation;
+    // 拖拽/自动移动时的朝向偏转，yaw 为水平角度，pitch 为俯仰角度。
+    float turnYaw = 0, turnPitch = 0;
+    float targetTurnYaw = 0, targetTurnPitch = 0;
     float cameraDistance = config.cameraDistance;
     float targetCameraDistance = config.cameraDistance;
     int smokeStage = 0;
@@ -535,6 +551,8 @@ int main(int argc, char **argv)
         Vector2 mouse = GetMousePosition();
         Vector2 window = GetWindowPosition();
         Vector2 globalMouse = {mouse.x + window.x, mouse.y + window.y};
+        targetTurnYaw = 0;
+        targetTurnPitch = 0;
         if (action != Action::Exit)
         {
             const float wheel = GetMouseWheelMove();
@@ -565,6 +583,9 @@ int main(int argc, char **argv)
                 {
                     windowX = windowOrigin.x + delta.x;
                     SetWindowPosition(static_cast<int>(std::round(windowX)), static_cast<int>(windowOrigin.y + delta.y));
+                    // 按拖拽偏移量让整个模型转向拖拽方向。
+                    targetTurnYaw = std::clamp(delta.x * 0.5f, -90.0f, 90.0f);
+                    targetTurnPitch = std::clamp(delta.y * 0.35f, -40.0f, 40.0f);
                 }
             }
             if (leftDown && IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
@@ -635,6 +656,8 @@ int main(int argc, char **argv)
                 windowX = std::clamp(windowX, left, right);
             }
             SetWindowPosition(static_cast<int>(std::round(windowX)), static_cast<int>(current.y));
+            // 自动走动时面向移动方向。
+            targetTurnYaw = direction > 0 ? 90.0f : -90.0f;
             if (walkRemaining <= 0)
                 setAction(Action::Idle);
         }
@@ -644,6 +667,10 @@ int main(int argc, char **argv)
             (player.clip(action) < 0 ? stateTime >= 0.65f : player.finished()))
             setAction(Action::Idle);
         player.update(dt, config.actions[slot(action)].loop);
+
+        const float turnLerp = 1.0f - std::exp(-12.0f * dt);
+        turnYaw += (targetTurnYaw - turnYaw) * turnLerp;
+        turnPitch += (targetTurnPitch - turnPitch) * turnLerp;
 
         cameraDistance += (targetCameraDistance - cameraDistance) * (1.0f - std::exp(-12.0f * dt));
 
@@ -656,6 +683,8 @@ int main(int argc, char **argv)
         camera.fovy = 35;
         camera.projection = CAMERA_PERSPECTIVE;
         const float fade = action == Action::Exit ? 1.0f - smooth(stateTime / std::max(0.5f, player.duration(Action::Exit))) : 1.0f;
+        float turnAngle = 0;
+        const Vector3 turnAxis = facingAxis(yaw + turnYaw, turnPitch, turnAngle);
         hitMaskClock += dt;
         if (hitTexture.id && hitMaskClock >= 0.08f)
         {
@@ -665,9 +694,9 @@ int main(int argc, char **argv)
             BeginMode3D(camera);
             if (IsModelValid(model))
                 crose::drawConfiguredModel(model, components, config.actions[slot(action)],
-                                           {0, 0, 0}, {0, 1, 0}, yaw,
+                                           {0, 0, 0}, turnAxis, turnAngle,
                                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
-            else drawDemoPet(action, worldTime, stateTime, yaw, fade);
+            else drawDemoPet(action, worldTime, stateTime, yaw + turnYaw, turnPitch, fade);
             EndMode3D();
             EndTextureMode();
             Image hitImage = LoadImageFromTexture(hitTexture.texture);
@@ -696,7 +725,7 @@ int main(int argc, char **argv)
                 crose::drawConfiguredModel(model, components, config.actions[slot(action)],
                                            {0, 0, 0}, {0, 1, 0}, 0,
                                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
-            else drawDemoPet(action, worldTime, stateTime, 0, fade);
+            else drawDemoPet(action, worldTime, stateTime, 0, 0, fade);
             EndMode3D();
             EndTextureMode();
             Image iconImage = LoadImageFromTexture(trayTexture.texture);
@@ -719,11 +748,11 @@ int main(int argc, char **argv)
                                        ? std::sin(stateTime * 18) * 0.08f * (1.0f - smooth(stateTime / 0.65f))
                                        : 0;
             crose::drawConfiguredModel(model, components, config.actions[slot(action)],
-                                       {0, reaction, 0}, {0, 1, 0}, yaw,
+                                       {0, reaction, 0}, turnAxis, turnAngle,
                                        {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
         }
         else
-            drawDemoPet(action, worldTime, stateTime, yaw, fade);
+            drawDemoPet(action, worldTime, stateTime, yaw + turnYaw, turnPitch, fade);
         EndMode3D();
         EndDrawing();
     }

@@ -2,29 +2,42 @@
 
 ## Project Structure & Module Organization
 
-`CMakeLists.txt` defines the `crose_pet` executable and pinned dependencies. `src/main.cpp` owns the pet loop; `configurator.cpp`, `pet_config.cpp`, and `model_render.cpp` handle the startup UI, JSON profiles, and per-action component rendering. The tray interface is `src/system_tray.h`, with Windows and stub backends. `config/pet.json` is the primary sample profile; legacy `pet.ini` remains supported. `tests/` contains profile persistence checks. Model files (`*.glb`, `*.gltf`, `*.bin`) are ignored by Git.
+`CMakeLists.txt` builds the `crose_pet` executable and pins dependencies via `FetchContent` (raylib, raygui, portable-file-dialogs, nlohmann/json 3.12.0); the first configure needs network access. Source lives in `src/`:
+
+- `main.cpp` — entry point, CLI parsing, render loop, interaction, smoke test.
+- `configurator.cpp/.h` — raygui startup editor.
+- `pet_config.cpp/.h` — `crose::Config`, JSON/legacy-INI I/O, validation.
+- `model_render.cpp/.h` — clip playback, blending, component visibility.
+- `system_tray.h` — C ABI; `system_tray_win32.c` (Windows), `system_tray_stub.c` (elsewhere).
+
+`config/pet.json` is the primary profile; `config/pet.ini` is legacy input. `tests/` holds CTest cases. Model assets (`*.glb`, `*.gltf`, `*.bin`) are git-ignored; `团子.glb` is a local, untracked sample.
 
 ## Build, Test, and Development Commands
 
-Use CMake 3.22+ and a C++17 compiler. The first configure downloads pinned dependencies; Linux also needs the X11 and OpenGL development packages described in the README.
+Use CMake 3.22+ and a C++17 compiler; Linux also needs X11/OpenGL dev packages.
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release -j
-./build/crose_pet --config ./build/pet.ini
-ctest --test-dir build --output-on-failure
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # configure, fetch deps, copy config/
+cmake --build build --config Release -j          # build crose_pet and tests
+./build/crose_pet                                # open the configurator
+./build/crose_pet --config build/pet.json --run  # launch a profile directly
+ctest --test-dir build --output-on-failure       # run tests
 ```
 
-On Windows, run `build/crose_pet.exe`. The sample `model = ../团子.glb` refers to a local, untracked asset. Set `model =` in `build/pet.ini` to use the built-in demo pet when that file is unavailable. Reconfigure CMake after editing `config/pet.ini` to refresh the copied file.
+Flags: `--list-animations` prints model clip names; `--smoke-test` runs a hidden 3-second action cycle; `--help` lists options. On Windows use `build/crose_pet.exe`; MinGW builds are `-mwindows` (no console).
 
 ## Coding Style & Naming Conventions
 
-Follow the surrounding code: four-space indentation, C++17 in `main.cpp`, and C for the tray backends. C++ uses `camelCase` for functions and variables and `PascalCase` for types; the C interface uses `crose_` prefixes with `snake_case`. Keep platform-specific behavior in the appropriate tray source file. No formatter or linter is configured; build with the existing CMake warning flags (`/W4` on MSVC, `-Wall -Wextra -Wpedantic` elsewhere).
+Four-space indentation, C++17 for application code, C for tray backends. C++ uses `camelCase` functions/variables, `PascalCase` types, and the `crose` namespace; the C interface uses `crose_`-prefixed `snake_case`. Keep OS-specific logic inside the matching tray backend. No formatter or linter is configured; build cleanly under `/W4 /utf-8` (MSVC) or `-Wall -Wextra -Wpedantic`.
 
 ## Testing Guidelines
 
-Run `ctest --test-dir build --output-on-failure` for JSON profile tests. In a graphical session, run `./build/crose_pet --config ./build/pet.json --smoke-test` for the three-second animation and render check. For imported models, run `--list-animations` with the same config and verify the configured clips. Manually check the startup editor, click, drag, scroll, and exit behavior; on Windows, also check tray show/hide and transparent-area click-through.
+`ctest` runs `config_roundtrip`, which saves and reloads a JSON profile and asserts name, model path, and drag-action fields survive. Add cases under `tests/`, link `src/pet_config.cpp`, and register them with `add_test`. Before submitting, also run `--smoke-test` and `--list-animations` for imported models, then manually check the configurator, click/drag/scroll/exit, and Windows tray behavior.
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use a short `feat: description` subject. Follow that `type: concise summary` pattern (for example, `fix: correct tray toggle`) and keep each commit focused. In a pull request, describe the user-visible change, affected platforms, and validation commands. Link a related issue when one exists, and include a screenshot or short recording for visual or tray changes.
+History follows `type: concise summary` (e.g., `feat: 添加配置界面`, `fix: correct tray toggle`); keep commits focused. Pull requests should state the user-visible change, affected platforms, and validation commands, link related issues, and include a screenshot or short recording for visual or tray changes.
+
+## Configuration Notes
+
+Profiles hold window, display, animation, and behavior settings plus seven actions (`startup`, `idle`, `drag`, `move`, `left_click`, `right_click`, `exit`). Animations accept a name, `|`-separated fallbacks, or `#index`. Model paths resolve relative to the profile; leave `model` empty for the demo pet. Re-run CMake after editing `config/pet.json` — files are copied at configure time.
