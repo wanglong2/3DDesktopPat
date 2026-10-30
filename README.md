@@ -4,7 +4,7 @@
 
 ## 构建与启动
 
-需要 CMake 3.22+、C++17 编译器，以及首次配置时用于下载依赖的网络连接。Linux 还需要 raylib 所需的 X11/OpenGL 开发包，并建议安装 `zenity` 以使用原生文件选择框。
+需要 CMake 3.22+ 和 C++17 编译器。第三方库源码已放在 `thirdparty/`，配置和构建不需要下载依赖。Linux 还需要 raylib 所需的 X11/OpenGL 开发包，并建议安装 `zenity` 以使用原生文件选择框。
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

@@ -1,5 +1,6 @@
 #include "configurator.h"
 
+#include "file_dialog.h"
 #include "model_render.h"
 
 #include "raylib.h"
@@ -15,7 +16,6 @@
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-#include "portable-file-dialogs.h"
 
 #include <algorithm>
 #include <array>
@@ -138,18 +138,22 @@ namespace crose
 
         Font loadUiFont(const std::vector<int> &codepoints)
         {
-            static const std::array<const char *, 5> latinCandidates = {
+            static const std::array<const char *, 7> latinCandidates = {
                 "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",            // Ubuntu 默认 UI 字体
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Helvetica.ttf",
                 "C:/Windows/Fonts/segoeui.ttf",
                 "C:/Windows/Fonts/arial.ttf",
             };
-            static const std::array<const char *, 6> cjkCandidates = {
+            static const std::array<const char *, 8> cjkCandidates = {
                 "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
                 "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
                 "/usr/share/fonts/truetype/arphic/uming.ttc",
                 "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",   // CFF，stb 不支持，仅兜底尝试
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
                 "C:/Windows/Fonts/msyh.ttc",                                // 微软雅黑
                 "C:/Windows/Fonts/simhei.ttf",
             };
@@ -655,8 +659,8 @@ namespace crose
 
             if (GuiButton({static_cast<float>(width - 454), 18, 100, 34}, u8"打开 JSON"))
             {
-                const auto files = pfd::open_file(u8"打开宠物配置", config.profilePath.parent_path().string(),
-                                                  {u8"宠物配置", "*.json", u8"所有文件", "*"}).result();
+                const auto files = openFileDialog(u8"打开宠物配置", config.profilePath.parent_path().u8string(),
+                                                  {u8"宠物配置", "*.json", u8"所有文件", "*"});
                 if (!files.empty())
                 {
                     Config loaded;
@@ -678,8 +682,8 @@ namespace crose
                     target.clear();
                 if (target.empty())
                 {
-                    const std::string chosen = pfd::save_file(u8"保存宠物配置", "pet-profile.json",
-                                                              {u8"宠物配置", "*.json"}).result();
+                    const std::string chosen = saveFileDialog(u8"保存宠物配置", "pet-profile.json",
+                                                              {u8"宠物配置", "*.json"});
                     if (!chosen.empty())
                         target = jsonPath(fs::u8path(chosen));
                 }
@@ -690,8 +694,8 @@ namespace crose
             {
                 config.name = profileName;
                 config.model = fs::u8path(modelPath);
-                const std::string chosen = pfd::save_file(u8"保存宠物配置", "pet-profile.json",
-                                                          {u8"宠物配置", "*.json"}).result();
+                const std::string chosen = saveFileDialog(u8"保存宠物配置", "pet-profile.json",
+                                                          {u8"宠物配置", "*.json"});
                 const fs::path target = jsonPath(fs::u8path(chosen));
                 if (!chosen.empty() && saveConfigJson(target, config, status))
                     status = u8"已保存 " + target.filename().u8string();
@@ -734,8 +738,8 @@ namespace crose
                 }
                 if (GuiButton({x + leftPanel.width - 40 - browseWidth, contentY + 90, browseWidth, 36}, u8"浏览..."))
                 {
-                    const auto files = pfd::open_file(u8"选择 3D 宠物模型", config.model.parent_path().string(),
-                                                      {u8"glTF 模型", "*.glb *.gltf", u8"所有文件", "*"}).result();
+                    const auto files = openFileDialog(u8"选择 3D 宠物模型", config.model.parent_path().u8string(),
+                                                      {u8"glTF 模型", "*.glb *.gltf", u8"所有文件", "*"});
                     if (!files.empty())
                     {
                         config.model = fs::u8path(files.front());

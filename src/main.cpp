@@ -31,7 +31,6 @@
 namespace fs = std::filesystem;
 namespace
 {
-
     std::string trim(std::string s)
     {
         const auto begin = s.find_first_not_of(" \t\r\n");
@@ -113,10 +112,9 @@ namespace
         }
     }
 
-
     using crose::Action;
-    using crose::Config;
     using crose::actionCount;
+    using crose::Config;
     using crose::slot;
 
     int resolveClip(const std::string &alternatives, Model model, const ModelAnimation *animations, int count)
@@ -270,8 +268,8 @@ namespace
     void drawDemoPet(Action action, float time, float elapsed, float yaw, float tilt, float fade)
     {
         const float bounce = (action == Action::Move || action == Action::Drag) ? std::abs(std::sin(time * 10)) * 0.15f : action == Action::LeftClick ? std::sin(std::min(elapsed, 0.6f) * 14) * 0.18f
-                                                                                          : action == Action::RightClick  ? std::abs(std::sin(elapsed * 13)) * 0.3f
-                                                                                                                     : std::sin(time * 2.5f) * 0.04f;
+                                                                                                                      : action == Action::RightClick  ? std::abs(std::sin(elapsed * 13)) * 0.3f
+                                                                                                                                                      : std::sin(time * 2.5f) * 0.04f;
         const float sway = action == Action::RightClick ? std::sin(elapsed * 14) * 18.0f : 0;
         const Color body = {128, 209, 226, static_cast<unsigned char>(255 * fade)};
         const Color belly = {237, 250, 248, static_cast<unsigned char>(255 * fade)};
@@ -432,14 +430,17 @@ int main(int argc, char **argv)
                       << ": " << config.actions[i].animation << '\n';
     }
     CroseTray *tray = smokeTest ? nullptr : crose_tray_create(GetWindowHandle());
-    if (!smokeTest && !tray) std::cerr << "System tray is unavailable; using the normal window.\n";
+    if (!smokeTest && !tray)
+        std::cerr << "System tray is unavailable; using the normal window.\n";
     RenderTexture2D trayTexture{};
-    if (tray) trayTexture = LoadRenderTexture(128, 128);
+    if (tray)
+        trayTexture = LoadRenderTexture(128, 128);
     void *nativeWindow = GetWindowHandle();
     int cursorX = 0, cursorY = 0;
     const bool perPixelHitTest = crose_cursor_in_window(nativeWindow, &cursorX, &cursorY) >= 0;
     RenderTexture2D hitTexture{};
-    if (perPixelHitTest && !smokeTest) hitTexture = LoadRenderTexture(config.width, config.height);
+    if (perPixelHitTest && !smokeTest)
+        hitTexture = LoadRenderTexture(config.width, config.height);
     std::vector<unsigned char> hitAlpha(static_cast<std::size_t>(config.width) * config.height, 0);
     bool hitMaskReady = false, mousePassthrough = false;
     float hitMaskClock = 0.2f;
@@ -509,8 +510,13 @@ int main(int argc, char **argv)
         if (trayRequests & CROSE_TRAY_TOGGLE)
         {
             petHidden = !petHidden;
-            if (petHidden) SetWindowState(FLAG_WINDOW_HIDDEN);
-            else { ClearWindowState(FLAG_WINDOW_HIDDEN); SetWindowFocused(); }
+            if (petHidden)
+                SetWindowState(FLAG_WINDOW_HIDDEN);
+            else
+            {
+                ClearWindowState(FLAG_WINDOW_HIDDEN);
+                SetWindowFocused();
+            }
         }
         if (trayRequests & CROSE_TRAY_EXIT)
         {
@@ -529,21 +535,27 @@ int main(int argc, char **argv)
                 for (int dy = -2; dy <= 2 && !onPet; ++dy)
                 {
                     const int y = cursorY + dy;
-                    if (y < 0 || y >= config.height) continue;
+                    if (y < 0 || y >= config.height)
+                        continue;
                     for (int dx = -2; dx <= 2; ++dx)
                     {
                         const int x = cursorX + dx;
                         if (x >= 0 && x < config.width &&
                             hitAlpha[static_cast<std::size_t>(y) * config.width + x] > 24)
-                        { onPet = true; break; }
+                        {
+                            onPet = true;
+                            break;
+                        }
                     }
                 }
             }
             const bool passThrough = !onPet && !leftDown && !rightDown;
             if (passThrough != mousePassthrough)
             {
-                if (passThrough) SetWindowState(FLAG_WINDOW_MOUSE_PASSTHROUGH);
-                else ClearWindowState(FLAG_WINDOW_MOUSE_PASSTHROUGH);
+                if (passThrough)
+                    SetWindowState(FLAG_WINDOW_MOUSE_PASSTHROUGH);
+                else
+                    ClearWindowState(FLAG_WINDOW_MOUSE_PASSTHROUGH);
                 mousePassthrough = passThrough;
             }
         }
@@ -696,7 +708,8 @@ int main(int argc, char **argv)
                 crose::drawConfiguredModel(model, components, config.actions[slot(action)],
                                            {0, 0, 0}, turnAxis, turnAngle,
                                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
-            else drawDemoPet(action, worldTime, stateTime, yaw + turnYaw, turnPitch, fade);
+            else
+                drawDemoPet(action, worldTime, stateTime, yaw + turnYaw, turnPitch, fade);
             EndMode3D();
             EndTextureMode();
             Image hitImage = LoadImageFromTexture(hitTexture.texture);
@@ -705,7 +718,8 @@ int main(int argc, char **argv)
                 ImageFlipVertical(&hitImage);
                 ImageFormat(&hitImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
                 const auto *rgba = static_cast<const unsigned char *>(hitImage.data);
-                for (std::size_t i = 0; i < hitAlpha.size(); ++i) hitAlpha[i] = rgba[4*i + 3];
+                for (std::size_t i = 0; i < hitAlpha.size(); ++i)
+                    hitAlpha[i] = rgba[4 * i + 3];
                 hitMaskReady = true;
                 UnloadImage(hitImage);
             }
@@ -725,7 +739,8 @@ int main(int argc, char **argv)
                 crose::drawConfiguredModel(model, components, config.actions[slot(action)],
                                            {0, 0, 0}, {0, 1, 0}, 0,
                                            {modelScale, modelScale, modelScale}, Fade(WHITE, fade));
-            else drawDemoPet(action, worldTime, stateTime, 0, 0, fade);
+            else
+                drawDemoPet(action, worldTime, stateTime, 0, 0, fade);
             EndMode3D();
             EndTextureMode();
             Image iconImage = LoadImageFromTexture(trayTexture.texture);
@@ -760,8 +775,10 @@ int main(int argc, char **argv)
         UnloadModelAnimations(animations, animationCount);
     if (IsModelValid(model))
         UnloadModel(model);
-    if (hitTexture.id) UnloadRenderTexture(hitTexture);
-    if (trayTexture.id) UnloadRenderTexture(trayTexture);
+    if (hitTexture.id)
+        UnloadRenderTexture(hitTexture);
+    if (trayTexture.id)
+        UnloadRenderTexture(trayTexture);
     crose_tray_destroy(tray);
     CloseWindow();
     return 0;

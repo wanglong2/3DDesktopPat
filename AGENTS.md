@@ -2,22 +2,24 @@
 
 ## Project Structure & Module Organization
 
-`CMakeLists.txt` builds the `crose_pet` executable and pins dependencies via `FetchContent` (raylib, raygui, portable-file-dialogs, nlohmann/json 3.12.0); the first configure needs network access. Source lives in `src/`:
+`CMakeLists.txt` builds the `crose_pet` executable using vendored dependencies in `thirdparty/` (raylib, raygui, portable-file-dialogs, nlohmann/json 3.12.0); configuration does not need network access. Source lives in `src/`:
 
 - `main.cpp` — entry point, CLI parsing, render loop, interaction, smoke test.
 - `configurator.cpp/.h` — raygui startup editor.
+- `file_dialog.cpp/.h` — portable native file dialog wrapper.
 - `pet_config.cpp/.h` — `crose::Config`, JSON/legacy-INI I/O, validation.
 - `model_render.cpp/.h` — clip playback, blending, component visibility.
 - `system_tray.h` — C ABI; `system_tray_win32.c` (Windows), `system_tray_stub.c` (elsewhere).
 
 `config/pet.json` is the primary profile; `config/pet.ini` is legacy input. `tests/` holds CTest cases. Model assets (`*.glb`, `*.gltf`, `*.bin`) are git-ignored; `团子.glb` is a local, untracked sample.
+`thirdparty/README.md` records vendored versions, upstream sources, and licenses.
 
 ## Build, Test, and Development Commands
 
-Use CMake 3.22+ and a C++17 compiler; Linux also needs X11/OpenGL dev packages.
+Use CMake 3.22+ and a C++17 compiler; Linux also needs X11/OpenGL dev packages. The dependencies are already in `thirdparty/`.
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # configure, fetch deps, copy config/
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # configure local deps, copy config/
 cmake --build build --config Release -j          # build crose_pet and tests
 ./build/crose_pet                                # open the configurator
 ./build/crose_pet --config build/pet.json --run  # launch a profile directly
